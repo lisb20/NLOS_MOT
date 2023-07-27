@@ -37,8 +37,8 @@ class TrackingDataset(Dataset):
             tmp_dir = [os.path.join(str(peo), d) for d in os.listdir(os.path.join(self.dataset_dir, str(peo)))]
             self.dirs += tmp_dir[:600]
         
-        print('dirs: ', len(self.dirs))
-        pdb.set_trace()
+        # print('dirs: ', len(self.dirs))
+        # pdb.set_trace()
 
         if use_fileclient:
             self.npy_loader = npy_loader()

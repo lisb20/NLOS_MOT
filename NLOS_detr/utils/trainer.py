@@ -353,7 +353,10 @@ class Trainer_tracking(Trainer_Base):
 
             if self.train_cfgs['amp']:
                 with autocast():
-                    (x_loss, v_loss, m_loss), (preds,acc) = self.model((inputs, labels))
+                    if epoch < 15:
+                        (x_loss, v_loss, m_loss), (preds,acc) = self.model((inputs, labels, True))
+                    else:
+                        (x_loss, v_loss, m_loss), (preds,acc) = self.model((inputs, labels, False))
                 
                 loss = x_loss * self.train_cfgs['x_loss_alpha'] + \
                           v_loss * self.train_cfgs['v_loss_alpha'] + \
@@ -460,9 +463,9 @@ class Trainer_tracking(Trainer_Base):
             with torch.no_grad():
                 if self.train_cfgs['amp']:
                     with autocast():
-                        (x_loss, v_loss, m_loss), (preds,acc) = self.model((inputs, labels))
+                        (x_loss, v_loss, m_loss), (preds,acc) = self.model((inputs, labels, False))
                 else:
-                    (x_loss, v_loss, m_loss), preds = self.model((inputs, labels))
+                    (x_loss, v_loss, m_loss), preds = self.model((inputs, labels, False))
 
             x_loss = x_loss.detach().clone()
             v_loss = v_loss.detach().clone()
@@ -542,9 +545,9 @@ class Trainer_tracking(Trainer_Base):
         with torch.no_grad():
             if self.train_cfgs['amp']:
                 with autocast():
-                    loss, (pred_routes,_) = self.model((frames, gt_routes))
+                    loss, (pred_routes,_) = self.model((frames, gt_routes, False))
             else:
-                loss, (pred_routes,_) = self.model((frames, gt_routes))
+                loss, (pred_routes,_) = self.model((frames, gt_routes, False))
 
         for idx, (gt, pred, map_size) in enumerate(zip(
                 gt_routes.cpu().numpy(), pred_routes.cpu().numpy(), map_sizes.cpu().numpy())):

@@ -184,8 +184,15 @@ class PAC_Net(PAC_Net_Base):
         for m in init_modules:
             m.apply(self._init_weights)
 
-    def forward(self, Ix: tuple):
-        I, x_gt = Ix  # (B, C, T, H, W)
+    def forward(self, Ix: tuple,):
+        I, x_gt,freeze = Ix  # (B, C, T, H, W)
+        if freeze:
+            for para in self.transformer.parameters():
+                para.requires_grad = False
+        else:
+            for para in self.transformer.parameters():
+                para.requires_grad = True
+        
         delta_I = torch.sub(I[:, :, 1:], I[:, :, :-1]).float()
         B, T = x_gt.shape[:2] ## (b,T,6)
         if self.warmup_frames > 0:
@@ -232,9 +239,9 @@ class PAC_Net(PAC_Net_Base):
         cost_matrix = torch.zeros((npeo,npeo), device=x_gt.device, requires_grad=False)
 
         pred_matched = torch.zeros((B,T,npeo * 2), device=x_gt.device, requires_grad=False)
-        x_loss_tot = 0
-        v_loss_tot = 0
-        m_loss_tot = 0      
+        x_loss_tot = torch.tensor(0.0,device=x_gt.device)
+        v_loss_tot = torch.tensor(0.0,device=x_gt.device)
+        m_loss_tot = torch.tensor(0.0,device=x_gt.device)      
 
         class_gt = torch.zeros((B, npeo, self.max_peo + 1), device=x_gt.device) ## class: idx==0 -> empty 只分为有无人
         valid_peo = []
@@ -256,12 +263,15 @@ class PAC_Net(PAC_Net_Base):
                 pred_peo.append(npeo - torch.sum(p==0))
                 for i in range(npeo):
                     for j in range(npeo):
-                        x_loss = self.criterion(x_pred[b,:,2*i:2*i+2], x_gt[b,self.warmup_frames:,2*j:2*j+2])
-                        v_loss = self.compute_v_loss(x_pred[b,:,2*i:2*i+2], x_gt[b,self.warmup_frames:,2*j:2*j+2])
+                        if not freeze:
+                            x_loss = self.criterion(x_pred[b,:,2*i:2*i+2], x_gt[b,self.warmup_frames:,2*j:2*j+2])
+                            v_loss = self.compute_v_loss(x_pred[b,:,2*i:2*i+2], x_gt[b,self.warmup_frames:,2*j:2*j+2])
                         # m_loss = self.criterion(class_pred[b,i,:], class_gt[b,j,:])
-                        m_loss = self.cross_entropy(class_pred[b,i,:], class_gt[b,j,:])
-                        cost_matrix[i,j] = x_loss * self.x_alpha + v_loss * self.v_alpha + m_loss * self.m_alpha
-            
+                            m_loss = self.cross_entropy(class_pred[b,i,:], class_gt[b,j,:])
+                            cost_matrix[i,j] = x_loss * self.x_alpha + v_loss * self.v_alpha + m_loss * self.m_alpha
+                        else:
+                            m_loss = self.cross_entropy(class_pred[b,i,:], class_gt[b,j,:])
+                            cost_matrix[i,j] = m_loss * self.m_alpha
                 match_res = linear_sum_assignment(cost_matrix.cpu().detach().numpy())
                 match.append(match_res[1])
 
@@ -269,10 +279,14 @@ class PAC_Net(PAC_Net_Base):
         for b in range(B):
             m = match[b]
             for i in range(npeo):
-                m_loss_tot += self.cross_entropy(class_pred[b,i,:], class_gt[b,m[i],:])
-                pred_matched[b,:,2*i:2*i+2] = x_pred[b,:,2*m[i]:2*m[i]+2]
-                x_loss_tot += self.criterion(x_pred[b,:,2*i:2*i+2], x_gt[b,self.warmup_frames:,2*m[i]:2*m[i]+2])
-                v_loss_tot += self.compute_v_loss(x_pred[b,:,2*i:2*i+2], x_gt[b,self.warmup_frames:,2*m[i]:2*m[i]+2])
+                if not freeze:
+                    m_loss_tot += self.cross_entropy(class_pred[b,i,:], class_gt[b,m[i],:])
+                    pred_matched[b,:,2*i:2*i+2] = x_pred[b,:,2*m[i]:2*m[i]+2]
+                    x_loss_tot += self.criterion(x_pred[b,:,2*i:2*i+2], x_gt[b,self.warmup_frames:,2*m[i]:2*m[i]+2])
+                    v_loss_tot += self.compute_v_loss(x_pred[b,:,2*i:2*i+2], x_gt[b,self.warmup_frames:,2*m[i]:2*m[i]+2])
+                else:
+                    m_loss_tot += self.cross_entropy(class_pred[b,i,:], class_gt[b,m[i],:])
+                    pred_matched[b,:,2*i:2*i+2] = x_pred[b,:,2*m[i]:2*m[i]+2]
             cnt += 1 if valid_peo[b] == pred_peo[b] else 0
 
         return (x_loss_tot,v_loss_tot,m_loss_tot), (pred_matched, cnt/B)
